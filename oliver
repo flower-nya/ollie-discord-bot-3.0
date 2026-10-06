@@ -1,0 +1,1145 @@
+import os
+import random
+from pathlib import Path
+from datetime import datetime
+
+import discord
+from discord.ext import commands, tasks
+from dotenv import load_dotenv
+
+
+# ============================================================
+# OLIVER CONFIG
+# ============================================================
+
+BASE_DIR = Path(__file__).resolve().parent
+ENV_FILE = BASE_DIR / ".env"
+
+load_dotenv(ENV_FILE)
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if not TOKEN:
+    raise RuntimeError(
+        "Oliver could not find DISCORD_TOKEN.\n\n"
+        f"Your .env file needs to be here:\n"
+        f"{ENV_FILE}\n\n"
+        "It should contain:\n"
+        "DISCORD_TOKEN=your_bot_token_here"
+    )
+
+
+# ============================================================
+# SERVER SETTINGS
+# ============================================================
+
+# Your Discord server
+GUILD_ID = 1486184203220418560
+
+# Channel where the daily holiday message is posted
+HOLIDAY_CHANNEL_ID = 1530980475810877630
+
+# Role Ollie should ping
+NATIONAL_HOLIDAY_ROLE_ID = 1540121307176505437
+
+# Daily posting time
+POST_HOUR = 9
+POST_MINUTE = 0
+
+# Names Oliver responds to
+OLIVER_NAMES = (
+    "oliver",
+    "ollie",
+    "olive",
+)
+
+
+# ============================================================
+# DISCORD SETUP
+# ============================================================
+
+intents = discord.Intents.default()
+
+intents.message_content = True
+intents.messages = True
+
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents
+)
+
+
+# ============================================================
+# HOLIDAY DATABASE
+# ============================================================
+#
+# Format:
+#
+# (month, day): {
+#     "name": "...",
+#     "emoji": "...",
+#     "description": "...",
+#     "fact": "..."
+# }
+#
+# ============================================================
+
+HOLIDAYS = {
+
+    # --------------------------------------------------------
+    # JANUARY
+    # --------------------------------------------------------
+
+    (1, 1): {
+        "name": "New Year's Day",
+        "emoji": "🎆",
+        "description": (
+            "Today marks the beginning of a brand-new year! "
+            "It's a wonderful time to look back on the past year "
+            "and look forward to everything still to come."
+        ),
+        "fact": (
+            "🎀 New Year's celebrations happen around the world "
+            "at different times because of time zones."
+        ),
+    },
+
+    (1, 4): {
+        "name": "National Spaghetti Day",
+        "emoji": "🍝",
+        "description": (
+            "Today is a perfect excuse to enjoy a delicious plate "
+            "of spaghetti! Whether you like it with tomato sauce, "
+            "meatballs, cheese, or something completely different, "
+            "it's a tasty day to celebrate."
+        ),
+        "fact": (
+            "🍝 Spaghetti is one of the most recognizable types "
+            "of pasta in the world."
+        ),
+    },
+
+    (1, 24): {
+        "name": "National Compliment Day",
+        "emoji": "💙",
+        "description": (
+            "Today is all about spreading a little kindness! "
+            "A sincere compliment can brighten someone's day "
+            "and doesn't cost anything."
+        ),
+        "fact": (
+            "✨ Even a small positive message can make someone "
+            "feel appreciated."
+        ),
+    },
+
+    (1, 25): {
+        "name": "Opposite Day",
+        "emoji": "🙃",
+        "description": (
+            "Today is a playful day to turn things upside down "
+            "and have some fun with opposites! Just remember "
+            "that not everything has to be taken literally."
+        ),
+        "fact": (
+            "🙃 Opposite Day is mostly celebrated as a fun "
+            "and informal tradition."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # FEBRUARY
+    # --------------------------------------------------------
+
+    (2, 2): {
+        "name": "Groundhog Day",
+        "emoji": "🦫",
+        "description": (
+            "Today is Groundhog Day! According to tradition, "
+            "a groundhog's behavior is used to predict whether "
+            "winter will continue or spring will arrive early."
+        ),
+        "fact": (
+            "🦫 Punxsutawney Phil is one of the most famous "
+            "groundhogs associated with the tradition."
+        ),
+    },
+
+    (2, 14): {
+        "name": "Valentine's Day",
+        "emoji": "💗",
+        "description": (
+            "Today is a day to celebrate love, friendship, "
+            "and the people who make life a little brighter. "
+            "A kind message or thoughtful gesture can make "
+            "someone's day extra special."
+        ),
+        "fact": (
+            "💌 Valentine's Day cards and messages are exchanged "
+            "by millions of people every year."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # MARCH
+    # --------------------------------------------------------
+
+    (3, 14): {
+        "name": "Pi Day",
+        "emoji": "🥧",
+        "description": (
+            "Happy Pi Day! Today celebrates π, the famous "
+            "mathematical constant used to describe the ratio "
+            "of a circle's circumference to its diameter."
+        ),
+        "fact": (
+            "🔢 Pi begins with 3.14159 and its digits continue "
+            "forever without repeating in a predictable pattern."
+        ),
+    },
+
+    (3, 17): {
+        "name": "St. Patrick's Day",
+        "emoji": "☘️",
+        "description": (
+            "Today is St. Patrick's Day, a celebration associated "
+            "with Irish culture, traditions, and the story of "
+            "Saint Patrick. Green clothing, shamrocks, and parades "
+            "are popular parts of the celebration."
+        ),
+        "fact": (
+            "☘️ The shamrock became associated with St. Patrick "
+            "and Irish tradition."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # APRIL
+    # --------------------------------------------------------
+
+    (4, 1): {
+        "name": "April Fools' Day",
+        "emoji": "🤪",
+        "description": (
+            "Today is April Fools' Day! It's a playful tradition "
+            "where people pull harmless jokes and silly pranks "
+            "on friends, family, and sometimes even entire communities."
+        ),
+        "fact": (
+            "🤪 April Fools' traditions have been around for "
+            "centuries in different forms."
+        ),
+    },
+
+    (4, 22): {
+        "name": "Earth Day",
+        "emoji": "🌎",
+        "description": (
+            "Today is Earth Day, a reminder to appreciate the "
+            "planet we all share. It's a great opportunity to "
+            "think about ways we can reduce waste and take care "
+            "of our environment."
+        ),
+        "fact": (
+            "🌱 Earth Day is observed every year on April 22."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # MAY
+    # --------------------------------------------------------
+
+    (5, 4): {
+        "name": "Star Wars Day",
+        "emoji": "⭐",
+        "description": (
+            "May the Fourth be with you! Today fans around the "
+            "world celebrate the Star Wars universe, its characters, "
+            "stories, and unforgettable adventures."
+        ),
+        "fact": (
+            "⭐ The celebration comes from the famous phrase "
+            "\"May the Force be with you.\""
+        ),
+    },
+
+    (5, 5): {
+        "name": "Cinco de Mayo",
+        "emoji": "🌮",
+        "description": (
+            "Cinco de Mayo commemorates the Mexican victory over "
+            "the French at the Battle of Puebla in 1862. It has "
+            "also become a popular cultural celebration in the "
+            "United States."
+        ),
+        "fact": (
+            "🇲🇽 Cinco de Mayo is not Mexico's Independence Day; "
+            "Mexico's Independence Day is celebrated on September 16."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # JUNE
+    # --------------------------------------------------------
+
+    (6, 5): {
+        "name": "World Environment Day",
+        "emoji": "🌎",
+        "description": (
+            "Today is World Environment Day! It's a chance to "
+            "learn more about environmental issues and think "
+            "about simple ways to help protect our planet."
+        ),
+        "fact": (
+            "🌱 World Environment Day is observed every year "
+            "on June 5."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # JULY
+    # --------------------------------------------------------
+
+    (7, 4): {
+        "name": "Independence Day",
+        "emoji": "🇺🇸",
+        "description": (
+            "Happy Independence Day! Today celebrates the adoption "
+            "of the Declaration of Independence in 1776 and is "
+            "often marked with fireworks, parades, music, and time "
+            "spent with family and friends."
+        ),
+        "fact": (
+            "🎆 The Declaration of Independence was adopted "
+            "on July 4, 1776."
+        ),
+    },
+
+    (7, 30): {
+        "name": "International Friendship Day",
+        "emoji": "💙",
+        "description": (
+            "Today is a great day to celebrate friendship! "
+            "Take a moment to appreciate the people who support "
+            "you, make you laugh, and make life more enjoyable."
+        ),
+        "fact": (
+            "🤝 Friendship Day is celebrated in different ways "
+            "around the world."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # AUGUST
+    # --------------------------------------------------------
+
+    (8, 8): {
+        "name": "International Cat Day",
+        "emoji": "🐱",
+        "description": (
+            "Today is International Cat Day! It's a fun opportunity "
+            "to celebrate cats and recognize the companionship "
+            "they bring to millions of people."
+        ),
+        "fact": (
+            "🐾 Cats have been living alongside humans for "
+            "thousands of years."
+        ),
+    },
+
+    (8, 19): {
+        "name": "World Photography Day",
+        "emoji": "📸",
+        "description": (
+            "Today celebrates the art of photography and the "
+            "ability to capture moments that can last a lifetime. "
+            "It's a great day to look back at favorite memories "
+            "or take a new photo."
+        ),
+        "fact": (
+            "📸 World Photography Day is celebrated every year "
+            "on August 19."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # SEPTEMBER
+    # --------------------------------------------------------
+
+    (9, 19): {
+        "name": "Talk Like a Pirate Day",
+        "emoji": "🏴‍☠️",
+        "description": (
+            "Arrr! Today be Talk Like a Pirate Day! Have some "
+            "fun with pirate phrases, silly voices, and a little "
+            "imaginary adventure."
+        ),
+        "fact": (
+            "🏴‍☠️ The holiday became popular as a humorous "
+            "celebration of pirate speech and culture."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # OCTOBER
+    # --------------------------------------------------------
+
+    (10, 1): {
+        "name": "International Coffee Day",
+        "emoji": "☕",
+        "description": (
+            "Today celebrates coffee and the people around the "
+            "world who grow, prepare, and enjoy it. Whether you "
+            "like yours hot, iced, sweet, or strong, it's a good "
+            "day for a cup."
+        ),
+        "fact": (
+            "☕ Coffee is one of the world's most widely consumed "
+            "beverages."
+        ),
+    },
+
+    (10, 4): {
+        "name": "World Animal Day",
+        "emoji": "🐾",
+        "description": (
+            "Today we celebrate the amazing animals that share "
+            "our world! World Animal Day is a reminder to "
+            "appreciate animals, raise awareness about their "
+            "welfare, and do our part to protect them."
+        ),
+        "fact": (
+            "🐾 World Animal Day is celebrated every year "
+            "on October 4."
+        ),
+    },
+
+    (10, 31): {
+        "name": "Halloween",
+        "emoji": "🎃",
+        "description": (
+            "Happy Halloween! Today is filled with costumes, "
+            "decorations, spooky stories, and of course plenty "
+            "of candy. Have fun and stay safe while celebrating!"
+        ),
+        "fact": (
+            "👻 Halloween has roots in ancient traditions "
+            "associated with the changing of the seasons."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # NOVEMBER
+    # --------------------------------------------------------
+
+    (11, 3): {
+        "name": "National Sandwich Day",
+        "emoji": "🥪",
+        "description": (
+            "Today is National Sandwich Day! Whether your favorite "
+            "is a grilled cheese, turkey sandwich, PB&J, or something "
+            "completely unique, today is a great excuse to enjoy one."
+        ),
+        "fact": (
+            "🥪 The modern sandwich is commonly associated with "
+            "John Montagu, the 4th Earl of Sandwich."
+        ),
+    },
+
+    (11, 13): {
+        "name": "World Kindness Day",
+        "emoji": "💙",
+        "description": (
+            "Today is World Kindness Day! It's a reminder that "
+            "small acts of kindness can have a surprisingly big "
+            "impact on the people around us."
+        ),
+        "fact": (
+            "✨ Kindness can be as simple as helping someone, "
+            "giving a compliment, or checking in on a friend."
+        ),
+    },
+
+    # --------------------------------------------------------
+    # DECEMBER
+    # --------------------------------------------------------
+
+    (12, 4): {
+        "name": "National Cookie Day",
+        "emoji": "🍪",
+        "description": (
+            "Today is National Cookie Day! It's the perfect "
+            "opportunity to enjoy a favorite cookie and appreciate "
+            "one of the world's most beloved baked treats."
+        ),
+        "fact": (
+            "🍪 Cookies come in countless varieties, from "
+            "chocolate chip to shortbread and beyond."
+        ),
+    },
+
+    (12, 25): {
+        "name": "Christmas Day",
+        "emoji": "🎄",
+        "description": (
+            "Merry Christmas! Christmas is celebrated by millions "
+            "of people around the world and is associated with "
+            "family, traditions, giving, decorations, and celebration."
+        ),
+        "fact": (
+            "🎁 Christmas traditions vary greatly between "
+            "different countries and cultures."
+        ),
+    },
+
+    (12, 31): {
+        "name": "New Year's Eve",
+        "emoji": "🎆",
+        "description": (
+            "It's New Year's Eve! Tonight marks the final day "
+            "of the year and is a chance to celebrate memories "
+            "from the past year while looking forward to what's next."
+        ),
+        "fact": (
+            "🎆 New Year's Eve is celebrated around the world, "
+            "with midnight occurring at different times because "
+            "of time zones."
+        ),
+    },
+}
+
+
+# ============================================================
+# GET TODAY'S HOLIDAY
+# ============================================================
+
+def get_todays_holiday():
+
+    today = datetime.now()
+
+    return HOLIDAYS.get(
+        (today.month, today.day)
+    )
+
+
+# ============================================================
+# GET NEXT HOLIDAY
+# ============================================================
+
+def get_next_holiday():
+
+    today = datetime.now()
+
+    upcoming = []
+
+    for (month, day), holiday in HOLIDAYS.items():
+
+        if (
+            month > today.month
+            or (
+                month == today.month
+                and day > today.day
+            )
+        ):
+
+            upcoming.append(
+                (month, day, holiday)
+            )
+
+    if upcoming:
+
+        upcoming.sort(
+            key=lambda item: (
+                item[0],
+                item[1]
+            )
+        )
+
+        return upcoming[0]
+
+    # If there are no more holidays this year,
+    # return the first holiday of next year.
+    all_holidays = []
+
+    for (month, day), holiday in HOLIDAYS.items():
+
+        all_holidays.append(
+            (month, day, holiday)
+        )
+
+    all_holidays.sort(
+        key=lambda item: (
+            item[0],
+            item[1]
+        )
+    )
+
+    if all_holidays:
+        return all_holidays[0]
+
+    return None
+
+
+# ============================================================
+# MAKE AESTHETIC EMBED
+# ============================================================
+
+def make_holiday_embed(
+    holiday,
+    month,
+    day
+):
+
+    name = holiday["name"]
+    emoji = holiday["emoji"]
+    description = holiday["description"]
+    fact = holiday["fact"]
+
+    embed = discord.Embed(
+        title=f"{emoji}  {name}",
+        description=(
+            f"**📅 {datetime.now().strftime('%B')} {day}**\n\n"
+            f"{description}"
+        ),
+        color=discord.Color.from_rgb(
+            116,
+            149,
+            255
+        )
+    )
+
+    embed.add_field(
+        name="✨ Did you know?",
+        value=fact,
+        inline=False
+    )
+
+    embed.add_field(
+        name="💙 Ollie's note",
+        value=(
+            "I hope you have a wonderful day! "
+            "Take a moment to celebrate, learn something new, "
+            "or simply enjoy the occasion. 🤖"
+        ),
+        inline=False
+    )
+
+    embed.set_footer(
+        text="Oliver • Ollie • Olive  •  National Holiday Bot 🤖"
+    )
+
+    return embed
+
+
+# ============================================================
+# DAILY HOLIDAY POST
+# ============================================================
+
+last_posted_date = None
+
+
+async def post_daily_holiday():
+
+    global last_posted_date
+
+    today = datetime.now().date()
+
+    # Prevent duplicate messages
+    if last_posted_date == today:
+
+        print(
+            "📅 Today's holiday has already been posted."
+        )
+
+        return
+
+    channel = bot.get_channel(
+        HOLIDAY_CHANNEL_ID
+    )
+
+    if channel is None:
+
+        print(
+            "❌ Oliver could not find the holiday channel."
+        )
+
+        return
+
+    holiday = get_todays_holiday()
+
+    if holiday is None:
+
+        print(
+            "📅 No configured national holiday today."
+        )
+
+        last_posted_date = today
+
+        return
+
+    now = datetime.now()
+
+    embed = make_holiday_embed(
+        holiday,
+        now.month,
+        now.day
+    )
+
+    role_mention = (
+        f"<@&{NATIONAL_HOLIDAY_ROLE_ID}>"
+    )
+
+    try:
+
+        await channel.send(
+            content=(
+                f"{role_mention}\n"
+                f"╭─────────────── ✨\n"
+                f"│ **TODAY'S NATIONAL HOLIDAY**\n"
+                f"╰─────────────── ✨"
+            ),
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(
+                roles=True
+            )
+        )
+
+        last_posted_date = today
+
+        print(
+            f"✅ Posted today's holiday: "
+            f"{holiday['name']}"
+        )
+
+    except discord.Forbidden:
+
+        print(
+            "❌ Oliver doesn't have permission "
+            "to send messages or mention the role."
+        )
+
+    except discord.HTTPException as error:
+
+        print(
+            f"❌ Discord error: {error}"
+        )
+
+
+# ============================================================
+# DAILY CHECKER
+# ============================================================
+
+@tasks.loop(seconds=30)
+async def daily_holiday_checker():
+
+    now = datetime.now()
+
+    if (
+        now.hour == POST_HOUR
+        and now.minute == POST_MINUTE
+    ):
+
+        await post_daily_holiday()
+
+
+@daily_holiday_checker.before_loop
+async def before_daily_checker():
+
+    await bot.wait_until_ready()
+
+
+# ============================================================
+# OLIVER CHAT RESPONSE
+# ============================================================
+
+def get_oliver_response(text):
+
+    text = text.lower().strip()
+
+    # Today's holiday
+    if (
+        "today's holiday" in text
+        or "todays holiday" in text
+        or "what is today's holiday" in text
+        or "what's today's holiday" in text
+        or "what holiday is today" in text
+        or "what holiday is it" in text
+        or "holiday today" in text
+        or "national holiday today" in text
+        or "what national holiday is today" in text
+    ):
+
+        return "HOLIDAY_LOOKUP"
+
+    # How are you?
+    if "how are you" in text:
+
+        return random.choice([
+            "I'm doing great! 🤖💙",
+            "I'm doing awesome! Thanks for asking! 😄",
+            "I'm good! Just hanging out! 🎉",
+        ])
+
+    # Who are you?
+    if "who are you" in text:
+
+        return (
+            "I'm Oliver! 🤖\n\n"
+            "You can call me Oliver, Ollie, or Olive! "
+            "I'm your National Holiday Bot! 🇺🇸🎉"
+        )
+
+    # Thanks
+    if "thank" in text:
+
+        return random.choice([
+            "You're welcome! 💙",
+            "Anytime! 😄",
+            "Of course! 🤖",
+        ])
+
+    # Greetings
+    if any(
+        word in text
+        for word in (
+            "hello",
+            "hi",
+            "hey"
+        )
+    ):
+
+        return random.choice([
+            "Hey! 👋",
+            "Hello! 😄",
+            "Hey there! 🤖",
+            "Hi! What's up? 💙",
+        ])
+
+    return random.choice([
+        "Yep? 👀",
+        "Hey! I'm listening. 🤖",
+        "What's up? 😄",
+        "You called? 👀",
+        "I'm here! 💙",
+    ])
+
+
+# ============================================================
+# NORMAL MESSAGES
+# ============================================================
+
+@bot.event
+async def on_message(message):
+
+    # Don't respond to himself
+    if message.author == bot.user:
+        return
+
+    text = (
+        message.content
+        .lower()
+        .strip()
+    )
+
+    print(
+        f"📨 Message received: {message.content}"
+    )
+
+    name_used = any(
+        name in text
+        for name in OLIVER_NAMES
+    )
+
+    mentioned = (
+        bot.user in message.mentions
+    )
+
+    if name_used or mentioned:
+
+        print(
+            "💙 Someone called Ollie!"
+        )
+
+        response = get_oliver_response(
+            text
+        )
+
+        try:
+
+            # ------------------------------------------------
+            # TODAY'S HOLIDAY
+            # ------------------------------------------------
+
+            if response == "HOLIDAY_LOOKUP":
+
+                today = datetime.now()
+
+                holiday = (
+                    get_todays_holiday()
+                )
+
+                if holiday is None:
+
+                    await message.channel.send(
+                        "📅 I don't have a national holiday "
+                        f"listed for **{today.strftime('%B %d')}**."
+                    )
+
+                else:
+
+                    embed = make_holiday_embed(
+                        holiday,
+                        today.month,
+                        today.day
+                    )
+
+                    await message.channel.send(
+                        embed=embed
+                    )
+
+            # ------------------------------------------------
+            # NORMAL RESPONSE
+            # ------------------------------------------------
+
+            else:
+
+                await message.channel.send(
+                    response
+                )
+
+            print(
+                "✅ Ollie sent a reply!"
+            )
+
+        except discord.Forbidden:
+
+            print(
+                "❌ Ollie doesn't have permission "
+                "to send messages here."
+            )
+
+        except discord.HTTPException as error:
+
+            print(
+                f"❌ Discord couldn't send the message: "
+                f"{error}"
+            )
+
+    await bot.process_commands(message)
+
+
+# ============================================================
+# BOT READY
+# ============================================================
+
+@bot.event
+async def on_ready():
+
+    print()
+    print("================================")
+    print("🤖 OLIVER IS ONLINE!")
+    print(f"👤 Logged in as: {bot.user}")
+    print(f"🆔 Bot ID: {bot.user.id}")
+    print("💙 Oliver • Ollie • Olive")
+    print("================================")
+    print()
+
+    try:
+
+        guild = discord.Object(
+            id=GUILD_ID
+        )
+
+        # Copy commands to this server
+        bot.tree.copy_global_to(
+            guild=guild
+        )
+
+        # Sync directly to this server
+        synced = await bot.tree.sync(
+            guild=guild
+        )
+
+        print(
+            f"✅ Synced {len(synced)} commands "
+            f"to your server."
+        )
+
+    except Exception as error:
+
+        print(
+            f"❌ Command sync error: {error}"
+        )
+
+    if not daily_holiday_checker.is_running():
+
+        daily_holiday_checker.start()
+
+
+# ============================================================
+# /hello
+# ============================================================
+
+@bot.tree.command(
+    name="hello",
+    description="Say hello to Oliver."
+)
+async def hello_command(
+    interaction: discord.Interaction
+):
+
+    await interaction.response.send_message(
+        "👋 Hey! I'm Oliver! "
+        "You can call me Oliver, Ollie, or Olive! 🤖💙"
+    )
+
+
+# ============================================================
+# /ping
+# ============================================================
+
+@bot.tree.command(
+    name="ping",
+    description="Check if Oliver is online."
+)
+async def ping_command(
+    interaction: discord.Interaction
+):
+
+    latency = round(
+        bot.latency * 1000
+    )
+
+    await interaction.response.send_message(
+        f"🏓 **Pong!**\n"
+        f"Oliver's latency is `{latency}ms`."
+    )
+
+
+# ============================================================
+# /holiday
+# ============================================================
+
+@bot.tree.command(
+    name="holiday",
+    description="Show today's national holiday."
+)
+async def holiday_command(
+    interaction: discord.Interaction
+):
+
+    today = datetime.now()
+
+    holiday = get_todays_holiday()
+
+    if holiday is None:
+
+        await interaction.response.send_message(
+            "📅 I don't have a national holiday "
+            f"listed for **{today.strftime('%B %d')}**."
+        )
+
+        return
+
+    embed = make_holiday_embed(
+        holiday,
+        today.month,
+        today.day
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
+
+
+# ============================================================
+# /next
+# ============================================================
+
+@bot.tree.command(
+    name="next",
+    description="Show the next upcoming national holiday."
+)
+async def next_command(
+    interaction: discord.Interaction
+):
+
+    result = get_next_holiday()
+
+    if result is None:
+
+        await interaction.response.send_message(
+            "📅 I couldn't find the next holiday."
+        )
+
+        return
+
+    month, day, holiday = result
+
+    embed = make_holiday_embed(
+        holiday,
+        month,
+        day
+    )
+
+    await interaction.response.send_message(
+        embed=embed
+    )
+
+
+# ============================================================
+# /testholiday
+# ============================================================
+
+@bot.tree.command(
+    name="testholiday",
+    description="Test the daily national holiday message."
+)
+async def testholiday_command(
+    interaction: discord.Interaction
+):
+
+    today = datetime.now()
+
+    holiday = get_todays_holiday()
+
+    if holiday is None:
+
+        await interaction.response.send_message(
+            "📅 I don't have a national holiday "
+            f"listed for **{today.strftime('%B %d')}**."
+        )
+
+        return
+
+    embed = make_holiday_embed(
+        holiday,
+        today.month,
+        today.day
+    )
+
+    role_mention = (
+        f"<@&{NATIONAL_HOLIDAY_ROLE_ID}>"
+    )
+
+    await interaction.response.send_message(
+        content=(
+            f"{role_mention}\n"
+            f"╭─────────────── ✨\n"
+            f"│ **TODAY'S NATIONAL HOLIDAY**\n"
+            f"╰─────────────── ✨"
+        ),
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(
+            roles=True
+        )
+    )
+
+
+# ============================================================
+# START OLIVER
+# ============================================================
+
+print("🤖 Starting Oliver...")
+
+bot.run(TOKEN)
